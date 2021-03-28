@@ -1,0 +1,100 @@
+#!/bin/bash
+# UTF-8
+# 程序名称: dirsync
+# 作者: 鲍奕帆
+# 学号: 3180103499
+# 作业要求(程序功能): 检测回文串
+# **编写一个实现文件备份和同步的shell脚本程序dirsync。程序的参数是两个需要备份同步的目录
+# 备份功能：目标目录将使用来自源目录的最新文件，新文件和新子目录进行升级，源目录将保持不变。
+# dirsync程序能够实现增量备份。同步功能：两个方向上的旧文件都将被最新文件替换，新文件都将被双向复制。
+# 源目录被删除的文件和子目录，目标目录也要对应删除。**
+
+function recursive_backup()
+{
+	for file1 in ` ls $1/ `
+	do
+		if [ -f $1/$file1 ];then
+			# 如果是文件 并且目标目录不存在该文件 则直接copy
+			if [ ! -f $2/$file1 ];then
+				cp $1/$file1 $2/$file1;
+			# 如果存在文件 但自己这边更加的新 也拷贝 -- 其他情况都不拷贝
+			elif [ $1/$file1 -nt $2/$file1 ];then
+				cp $1/$file1 $2/$file1;
+			fi	
+		elif [ -d $1/$file1 ];then
+			# 如果是目录 并且目标目录不存在该目录
+			if [ ! -d $2/$file1 ];then
+				mkdir -p $2/$file1; # 创建目录即可
+				recursive_backup $1/$file1 $2/$file1
+			#dir1目录里面该目录更加新
+			elif [ $1/$file1 -nt $2/$file1 ];then 
+				recursive_backup $1/$file1 $2/$file1  # 继续进行递归调用
+			fi
+		fi
+	done
+} 
+
+if [ $# -ne 3 ] || ([ ! -d "$2" ]) || ([ ! -d "$3" ])
+then
+    echo "Usage: $0 -option src_directory des_directory"
+	echo "-b: backup(incremental)"
+	echo "-s: synchronize"
+    exit 1
+elif [ $1 != "-b" ] && [ $1 != "-s" ]	# 应该是$1--$0是文件---还有-b和-c不能一起用-这个处理就先不处理了
+then
+    echo here
+	echo "Usage: $0 -option src_directory des_directory"
+	echo "-b: backup(incremental)"
+	echo "-s: synchronize" 
+fi
+
+dir1=$2
+dir2=$3
+
+if [ $1 = "-b" ]
+then
+    echo "begin backup..."
+    recursive_backup $dir1 $dir2
+    if [ "$?" = "0" ];then
+        echo "succeed"
+    fi
+elif [ $1 = "-s" ];then
+    if [ ! -f .synclog ];then
+        touch .synclog
+    fi  #第一次同步 同步日志文件为空--则进行双向备份
+    if [ ! -s .synclog ];then 
+    recursive_backup $dir1 $dir2
+    recursive_backup $dir2 $dir1
+    date +%s >> .synclog #记录日期
+    else  # 同步日志不为空--说明之前进行果同步
+        #文件不为空 读取日志最近的一行
+        lastsync=` tail -n 1 .synclog `
+        # 开始进行双向比较 进行同步删除
+        for file in ` ls $dir1 `
+        do
+            if [ ! -e $dir2/$file ];then
+            # 文件在另一个目录不存在 获取该文件的修改时间
+            filetime=` stat -c %Y $dir1/$file `
+                if [ $filetime -le $lastsync ];then #如果修改时间小于等于保存的时间的--就是老文件-要删除
+                    rm $dir1/$file
+                fi
+            fi
+        done
+        for file in ` ls $dir2 `
+        do 
+            if [ ! -e $dir1/$file ];then
+                filetime=` stat -c %Y $dir2/$file `
+                echo "filetime is $filetime, lastsync is $lastsync"
+                if [ $filetime -le $lastsync ];then
+                    rm $dir2/$file
+                fi
+            fi
+        done
+        recursive_backup $dir1 $dir2
+	    recursive_backup $dir2 $dir1
+        date +%s >> .synclog # 更新时间
+    fi
+
+fi
+
+
